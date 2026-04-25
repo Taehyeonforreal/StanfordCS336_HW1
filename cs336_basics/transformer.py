@@ -72,3 +72,20 @@ class RotaryPositionalEmbedding(nn.Module):
 def run_rope(d_k: int, theta: float, max_seq_len: int, in_query_or_key: Tensor, token_positions: Tensor) -> Tensor:
     rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len)
     return rope(in_query_or_key, token_positions) ##nn.Module의 __call__ method 때문에, rope.forward 대신 rope써도 됨. 
+
+
+def run_scaled_dot_product_attention(Q: Tensor, K: Tensor, V: Tensor, mask=None) -> Tensor:
+    d_k = Q.shape[-1]
+    # d_k : 각 토큰을 표현하는 벡터의 차원
+    # Q K_T 행렬곱으로 유사도 측정, sqrt(d_k)로 scaling (각 토큰 N~(0,1)이라 할때, 분산 : d_k)
+    scores = Q @ K.transpose(-2, -1) / (d_k ** 0.5)
+    
+    # 2. mask 적용 (False인 위치를 -무한대로)
+    if mask is not None:
+        scores = scores.masked_fill(mask == False, float('-inf'))
+    
+    # 3. softmax로 확률 변환
+    attn_weights = run_softmax(scores, dim=-1)
+    
+    # 4. V와 가중합
+    return attn_weights @ V
