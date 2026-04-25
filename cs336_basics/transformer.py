@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+import torch.nn as nn
 
 # Softmax.
 def run_softmax(in_features: Tensor, dim: int) -> Tensor:
@@ -28,3 +29,43 @@ def run_swiglu(d_model: int, d_ff: int, w1_weight: Tensor, w2_weight: Tensor, w3
     gate = run_silu(in_features @ w1_weight.T)
     up   = in_features @ w3_weight.T
     return (gate * up) @ w2_weight.T
+
+
+# RoPE Class
+class RotaryPositionalEmbedding(nn.Module):
+    def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
+        super().__init__()
+        
+        # 주파수 계산 후 버퍼로 저장 (학습 안 되는 상수)
+        i = torch.arange(0, d_k // 2, device=device)
+        freqs = 1.0 / (theta ** (2 * i / d_k))  # (d_k/2,)
+        
+        # 모든 position에 대해 미리 cos, sin 계산
+        positions = torch.arange(max_seq_len, device=device)  # (max_seq_len,)
+        angles = positions.unsqueeze(1) * freqs.unsqueeze(0)  # (max_seq_len, d_k/2)
+        
+        # register_buffer: 모델 저장/로드에 포함되지만 학습은 안 됨
+        self.register_buffer('cos', torch.cos(angles))  # (max_seq_len, d_k/2)
+        self.register_buffer('sin', torch.sin(angles))  # (max_seq_len, d_k/2)
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        # token_positions: (..., seq_len)
+        # cos, sin을 position에 맞게 슬라이싱
+        cos = self.cos[token_positions]  # (..., seq_len, d_k/2)
+        sin = self.sin[token_positions]  # (..., seq_len, d_k/2)
+        
+        # 짝수/홀수 인덱스 분리
+        x_even = x[..., 0::2]  # (..., seq_len, d_k/2)
+        x_odd  = x[..., 1::2]  # (..., seq_len, d_k/2)
+        
+        # 회전 적용
+        out_even = x_even * cos - x_odd * sin
+        out_odd  = x_even * sin + x_odd * cos
+        
+        # 다시 합치기
+        out = torch.stack([out_even, out_odd], dim=-1)
+        return out.flatten(-2)  # (..., seq_len, d_k)
+
+def run_rope(d_k: int, theta: float, max_seq_len: int, in_query_or_key: Tensor, token_positions: Tensor) -> Tensor:
+    rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len)
+    return rope(in_query_or_key, token_positions)
