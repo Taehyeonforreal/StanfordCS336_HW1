@@ -89,3 +89,140 @@ def run_scaled_dot_product_attention(Q: Tensor, K: Tensor, V: Tensor, mask=None)
     
     # 4. V와 가중합
     return attn_weights @ V
+    
+# 이건 멀티헤드 어텐션 + RoPE 구현하기 전 단계. 그냥 멀티헤드만 일단 구현한것. 실제로 안씀
+def run_multihead_self_attention(
+    d_model: int, num_heads: int,
+    q_proj_weight: Tensor, k_proj_weight: Tensor,
+    v_proj_weight: Tensor, o_proj_weight: Tensor,
+    in_features: Tensor
+) -> Tensor:
+    
+    batch, seq_len, _ = in_features.shape
+    d_k = d_model // num_heads  # 각 head의 차원
+
+    # 1. Q, K, V 한번에 projection
+    Q = in_features @ q_proj_weight.T  # (batch, seq_len, d_model)
+    K = in_features @ k_proj_weight.T
+    V = in_features @ v_proj_weight.T
+
+    # 2. num_heads개로 분리
+    # (batch, seq_len, d_model) → (batch, seq_len, num_heads, d_k)
+    Q = Q.view(batch, seq_len, num_heads, d_k)
+    K = K.view(batch, seq_len, num_heads, d_k)
+    V = V.view(batch, seq_len, num_heads, d_k)
+
+    # 3. head 차원을 앞으로 (Attention을 head별로 병렬 계산하기 위해)
+    # (batch, seq_len, num_heads, d_k) → (batch, num_heads, seq_len, d_k)
+    Q = Q.transpose(1, 2)
+    K = K.transpose(1, 2)
+    V = V.transpose(1, 2)
+
+    # 4. 각 head에서 Attention 계산
+    out = run_scaled_dot_product_attention(Q, K, V)
+    # (batch, num_heads, seq_len, d_k)
+
+    # 5. head 합치기
+    # (batch, num_heads, seq_len, d_k) → (batch, seq_len, num_heads, d_k)
+    out = out.transpose(1, 2)
+    # (batch, seq_len, num_heads, d_k) → (batch, seq_len, d_model)
+    out = out.contiguous().view(batch, seq_len, d_model)
+
+    # 6. output projection
+    return out @ o_proj_weight.T
+
+
+def run_multihead_self_attention_with_rope(
+    d_model: int, num_heads: int, max_seq_len: int, theta: float,
+    q_proj_weight: Tensor, k_proj_weight: Tensor,
+    v_proj_weight: Tensor, o_proj_weight: Tensor,
+    in_features: Tensor,
+    token_positions = None
+) -> Tensor:
+    
+    batch, seq_len, _ = in_features.shape
+    d_k = d_model // num_heads  # 각 head의 차원
+
+    # 1. Q, K, V 한번에 projection
+    Q = in_features @ q_proj_weight.T  # (batch, seq_len, d_model)
+    K = in_features @ k_proj_weight.T
+    V = in_features @ v_proj_weight.T
+
+    # 2. num_heads개로 분리
+    # (batch, seq_len, d_model) → (batch, seq_len, num_heads, d_k)
+    Q = Q.view(batch, seq_len, num_heads, d_k)
+    K = K.view(batch, seq_len, num_heads, d_k)
+    V = V.view(batch, seq_len, num_heads, d_k)
+
+    # 3. head 차원을 앞으로 (Attention을 head별로 병렬 계산하기 위해)
+    # (batch, seq_len, num_heads, d_k) → (batch, num_heads, seq_len, d_k)
+    Q = Q.transpose(1, 2)
+    K = K.transpose(1, 2)
+    V = V.transpose(1, 2)
+
+    # 4. RoPE
+    # 4.1 (batch, seq_len) → (batch, 1, seq_len) for broadcasting
+    # RoPE 과정에서, Broadcasting 예정
+    positions = token_positions.unsqueeze(1)
+
+    # 4.2 Q와 K만 RoPE
+    rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len)
+    Q = rope(Q, positions)
+    K = rope(K, positions)
+
+    # 5. 각 head에서 Attention 계산
+    out = run_scaled_dot_product_attention(Q, K, V)
+    # (batch, num_heads, seq_len, d_k)
+
+    # 6. head 합치기
+    # (batch, num_heads, seq_len, d_k) → (batch, seq_len, num_heads, d_k)
+    out = out.transpose(1, 2)
+    # (batch, seq_len, num_heads, d_k) → (batch, seq_len, d_model)
+    out = out.contiguous().view(batch, seq_len, d_model)
+
+    # 7. output projection
+    return out @ o_proj_weight.T
+
+
+# Transformer 구조 (Dropout 없이)
+# 입력 -> RMSNorm -> Multi-head Attention with RoPE -> Residual Add
+# -> RMSNorm -> SwiGLU Feed Forward Network -> Residual Add -> 출력
+def run_transformer_block(
+    d_model: int, num_heads: int, d_ff: int,
+    max_seq_len: int, theta: float,
+    weights: dict, in_features: Tensor
+) -> Tensor:
+    batch, seq_len, _ = in_features.shape
+
+    # token positions 생성
+    token_positions = torch.arange(seq_len, device=in_features.device)
+    token_positions = token_positions.unsqueeze(0).expand(batch, -1)
+
+    # 1. Pre-Norm
+    normed = run_rmsnorm(d_model, 1e-6, weights['ln1.weight'], in_features)
+    # 2. Attention
+    attn_out = run_multihead_self_attention_with_rope(
+        d_model, num_heads, max_seq_len, theta,
+        weights['attn.q_proj.weight'],
+        weights['attn.k_proj.weight'],
+        weights['attn.v_proj.weight'],
+        weights['attn.output_proj.weight'],
+        normed, token_positions
+    )
+    # 3. Residual
+    x = in_features + attn_out  # Residual Connection
+
+    # 4. Pre-Norm
+    normed = run_rmsnorm(d_model, 1e-6, weights['ln2.weight'], x)
+    # 5. FFN
+    ffn_out = run_swiglu(
+        d_model, d_ff,
+        weights['ffn.w1.weight'],
+        weights['ffn.w2.weight'],
+        weights['ffn.w3.weight'],
+        normed
+    )
+    # 6. Residual
+    x = x + ffn_out  # Residual Connection
+
+    return x
