@@ -75,4 +75,55 @@ def run_get_lr_cosine_schedule(
     return min_learning_rate + (max_learning_rate - min_learning_rate) * cosine_value
 
 
-# bat
+# batch random sampling from dataset
+def run_get_batch(
+    dataset,
+    batch_size: int,
+    context_length: int,
+    device: str
+):
+    # 1. 랜덤 시작 위치 batch_size개 샘플링
+    # context_length+1 만큼 읽어야 하니까 max_start를 제한
+    max_start = len(dataset) - context_length - 1
+    start_indices = torch.randint(0, max_start, (batch_size,))
+    # 이렇게 하면, batch_size 만큼 숫자를 고르고 이거를 batch_size length의 1D tensor로.
+
+    # 2. 각 시작 위치에서 input, target 추출
+    inputs  = torch.zeros(batch_size, context_length, dtype=torch.long)
+    targets = torch.zeros(batch_size, context_length, dtype=torch.long)
+
+    for i, start in enumerate(start_indices):
+        start = start.item()  # tensor → int 변환
+        inputs[i]  = torch.tensor(dataset[start : start + context_length])
+        targets[i] = torch.tensor(dataset[start+1 : start + context_length + 1])
+
+    # 3. 지정된 device로 이동
+    return inputs.to(device), targets.to(device)
+
+
+# CheckPoint 만들기
+def run_save_checkpoint(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    iteration: int,
+    out
+) -> None:
+    checkpoint = {
+        # model.state_dict() : 모델의 모든 가중치를 dictinoary로 꺼냄
+        # optimizer.state.dict() : AdamW 의 변수들도 꺼내야 함
+        'model':     model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'iteration': iteration
+    }
+    torch.save(checkpoint, out) # out은 파일 경로, 파일에 dictionary 저장
+
+
+def run_load_checkpoint(
+    src,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer
+) -> int:
+    checkpoint = torch.load(src) # save한 파일 불러오기
+    model.load_state_dict(checkpoint['model'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    return checkpoint['iteration']
