@@ -160,7 +160,7 @@ def run_multihead_self_attention_with_rope(
     K = K.transpose(1, 2)
     V = V.transpose(1, 2)
 
-    # 4. RoPE
+    # 4. RoPE 
     # 4.1 (batch, seq_len) → (batch, 1, seq_len) for broadcasting
     # RoPE 과정에서, Broadcasting 예정
     positions = token_positions.unsqueeze(1)
@@ -169,6 +169,9 @@ def run_multihead_self_attention_with_rope(
     rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len)
     Q = rope(Q, positions)
     K = rope(K, positions)
+
+    # ! GPT-2와 달리, Position Embedding이 각 Transformer Block 내에서 진행
+    # 안그러면, Block 내에서 Weight 내적때 상대위치 다 망가져버리니까
 
     # 5. 각 head에서 Attention 계산
     out = run_scaled_dot_product_attention(Q, K, V)
@@ -226,3 +229,41 @@ def run_transformer_block(
     x = x + ffn_out  # Residual Connection
 
     return x
+
+
+# Transformer 완성품
+def run_transformer_lm(
+    vocab_size: int, context_length: int, d_model: int,
+    num_layers: int, num_heads: int, d_ff: int, rope_theta: float,
+    weights: dict, in_indices: Tensor
+) -> Tensor:
+    batch, seq_len = in_indices.shape
+
+    # 1. Embedding: 토큰 ID → 벡터
+    x = run_embedding(vocab_size, d_model, weights['token_embeddings.weight'], in_indices)
+
+    # 2. Transformer Block N번 반복
+    for i in range(num_layers):
+        layer_weights = {
+            'ln1.weight':              weights[f'layers.{i}.ln1.weight'],
+            'ln2.weight':              weights[f'layers.{i}.ln2.weight'],
+            'attn.q_proj.weight':      weights[f'layers.{i}.attn.q_proj.weight'],
+            'attn.k_proj.weight':      weights[f'layers.{i}.attn.k_proj.weight'],
+            'attn.v_proj.weight':      weights[f'layers.{i}.attn.v_proj.weight'],
+            'attn.output_proj.weight': weights[f'layers.{i}.attn.output_proj.weight'],
+            'ffn.w1.weight':           weights[f'layers.{i}.ffn.w1.weight'],
+            'ffn.w2.weight':           weights[f'layers.{i}.ffn.w2.weight'],
+            'ffn.w3.weight':           weights[f'layers.{i}.ffn.w3.weight'],
+        }
+        x = run_transformer_block(
+            d_model, num_heads, d_ff, context_length, rope_theta, layer_weights, x
+        )
+
+    # 3. 마지막 RMSNorm -> 수치 안정화
+    x = run_rmsnorm(d_model, 1e-6, weights['ln_final.weight'], x)
+
+    # 4. lm_head: 벡터 → vocab_size
+    # lm_head_weight는 (vocab_size, d_model)
+    # x = (batch, seq_len, d_model)니까, 
+    # seq_len 안에 있는 단어들이, vocab_size 안에 있는 모든 단어와 내적하며 유사도 계산
+    return x @ weights['lm_head.weight'].T
