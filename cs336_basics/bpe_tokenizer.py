@@ -134,3 +134,107 @@ def run_train_bpe(input_path, vocab_size, special_tokens, **kwargs):
 
     return vocab, merges
     # 두개를 따로 주는 이유는, merges에선 합쳐지는 순서를 볼 수 있어
+
+# 실제로 텍스트를 토큰화하는 객체를 만들기
+class BPETokenizer:
+    def __init__(self, vocab, merges, special_tokens=None):
+        self.vocab = vocab 
+        self.merges = merges
+        self.special_tokens = special_tokens or [] # None 이면 빈 리스트로
+        
+        # bytes → int 역방향 lookup (decode에 필요). 역방향 딕셔너리
+        self.bytes_to_id = {v: k for k, v in vocab.items()}
+        
+        # merge 우선순위 (앞에 있을수록 먼저 적용)
+        # merge 딕셔너리에 앞에 있을 수록 먼저 학습된거라, 이걸 저장한다고 보는거지
+        self.merge_ranks = {pair: i for i, pair in enumerate(merges)}
+
+    # 텍스트를 토큰 ID 리스트로 변환
+    def encode(self, text: str) -> list[int]:
+        tokens = []
+        
+        # 1. special token 먼저 분리
+        if self.special_tokens:
+            # special token 기준으로 텍스트 분리
+            pattern = '(' + '|'.join(re.escape(t) for t in sorted(self.special_tokens, key=len, reverse=True)) + ')'
+            # 코드 설명
+            # 1.  sorted(self.special_tokens, key=len, reverse=True)
+            #     special token을 길이 내림차순 정렬. 짧은게 긴것의 prefix일수 있으니
+            # 2.  re.escape(t) for t in sorted
+            #     re.escape : 특수 의미 가진 문자(|()...)를 일반 문자로 취급해줌
+            # 3.  '|'.join
+            #     여러 special token을 "또는"으로 연결. regex 패턴 문자열로 기능.
+            #     이러면 re.split에서 |로 연결된 많은 special token 중 하나만 만나도 split
+            # 4. '(' + ... + ')'
+            #     구분자도 split 결과에 포함됨. 즉 special token도 결과에 포함하는 것.
+            #     그래야 special token에도 ID를 부여하니까
+
+            parts = re.split(pattern, text)
+        else:
+            parts = [text]
+        # 여기서 parts를 list로 해야 아래 for문 가능. re.split 결과도 list
+
+        for part in parts:
+            if part in self.special_tokens:
+                # special token은 그대로 ID로 변환
+                # part가 special token의 경우일 때, 
+                # 이걸 utf-8 규격으로 bytes로 변환하고, 
+                # (bytes, id) 딕셔너리를 찾아서, 
+                # ID를 tokens에 추가한다.
+                tokens.append(self.bytes_to_id[part.encode('utf-8')])
+            elif part:
+                # 일반 텍스트는 BPE 적용. part 별로 순차적으로.
+                tokens.extend(self._encode_chunk(part))
+        
+        return tokens
+
+    # encode의 내부 헬퍼
+    def _encode_chunk(self, text: str) -> list[int]:
+        # pre-tokenization
+        # re.findall(패턴, 텍스트) 패턴에 맞는 모든 부분을 리스트로
+        words = re.findall(GPT2_PAT, text)
+        token_ids = []
+        
+        for word in words:
+            # 각 글자를 byte ID로 변환
+            word_tokens = list(word.encode('utf-8'))
+            
+            # merge 적용
+            while len(word_tokens) >= 2: # 토큰이 두개 이상일때만
+                # 현재 인접 쌍 중 가장 우선순위 높은 merge 찾기
+                best = None
+                best_rank = float('inf')
+                
+                for i in range(len(word_tokens) - 1):
+                    pair = (self.vocab[word_tokens[i]], self.vocab[word_tokens[i+1]])
+                    rank = self.merge_ranks.get(pair, float('inf'))
+                    # get()에서 pair가 있으면 그 Value 반환, 없으면 무한대
+                    if rank < best_rank:
+                        best_rank = rank
+                        best = (i, pair)
+                
+                if best is None or best_rank == float('inf'):
+                    break  # 더 이상 적용할 merge 없음
+                
+                # merge 적용
+                i, pair = best
+                new_bytes = pair[0] + pair[1]
+                new_id = self.bytes_to_id[new_bytes]
+                word_tokens = word_tokens[:i] + [new_id] + word_tokens[i+2:]
+            
+            token_ids.extend(word_tokens)
+            # extend는 append와 다르게, 모든 들어온 거를 1-Dim 의 ID 리스트로
+        
+        return token_ids
+
+
+    # 토큰 ID 리스트를 텍스트로
+    def decode(self, ids: list[int]) -> str:
+        # ID → bytes → 문자열
+        byte_string = b''.join(self.vocab[i] for i in ids) # 구분자 없이 합치기
+        return byte_string.decode('utf-8', errors='replace')
+        # replace로 error 대체
+
+
+def get_tokenizer(vocab, merges, special_tokens=None):
+    return BPETokenizer(vocab, merges, special_tokens)
