@@ -4,7 +4,8 @@ import torch.nn as nn
 
 # Softmax.
 def run_softmax(in_features: Tensor, dim: int) -> Tensor:
-    exp_x = torch.exp(in_features)
+    x = in_features - in_features.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x)
     return exp_x / exp_x.sum(dim=dim, keepdim=True)
 
 # Linear Model. weight * input
