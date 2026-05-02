@@ -33,6 +33,15 @@ def find_chunk_boundaries(file, desired_num_chunks, split_special_token):
             initial_position += mini_chunk_size
     return sorted(set(chunk_boundaries))
 
+# iterator 구성하기
+def encode_iterable(self, iterable):
+    # iterable: 줄 단위로 나오는 것 (파일 객체 등)
+    # 한 줄씩 읽어서 encode하고, ID를 하나씩 yield
+    for line in iterable:
+        ids = self.encode(line)
+        for id in ids:
+            yield id
+
 def run_train_bpe(input_path, vocab_size, special_tokens, **kwargs):
     # input_path : BPE를 학습할 텍스트 파일 경로
     # vocab_size : 최종 vocab 크기 목표치
