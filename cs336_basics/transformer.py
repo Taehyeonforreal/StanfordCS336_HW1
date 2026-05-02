@@ -119,8 +119,11 @@ def run_multihead_self_attention(
     K = K.transpose(1, 2)
     V = V.transpose(1, 2)
 
+    # 3-1. MASK 추가
+    mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool, device=in_features.device))
+
     # 4. 각 head에서 Attention 계산
-    out = run_scaled_dot_product_attention(Q, K, V)
+    out = run_scaled_dot_product_attention(Q, K, V, mask = mask)
     # (batch, num_heads, seq_len, d_k)
 
     # 5. head 합치기
@@ -161,6 +164,9 @@ def run_multihead_self_attention_with_rope(
     K = K.transpose(1, 2)
     V = V.transpose(1, 2)
 
+    # 3-1. MASK 추가
+    mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool, device=in_features.device))
+
     # 4. RoPE 
     # 4.1 (batch, seq_len) → (batch, 1, seq_len) for broadcasting
     # RoPE 과정에서, Broadcasting 예정
@@ -175,7 +181,7 @@ def run_multihead_self_attention_with_rope(
     # 안그러면, Block 내에서 Weight 내적때 상대위치 다 망가져버리니까
 
     # 5. 각 head에서 Attention 계산
-    out = run_scaled_dot_product_attention(Q, K, V)
+    out = run_scaled_dot_product_attention(Q, K, V, mask = mask)
     # (batch, num_heads, seq_len, d_k)
 
     # 6. head 합치기
