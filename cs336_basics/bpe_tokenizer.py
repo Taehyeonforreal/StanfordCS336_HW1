@@ -197,7 +197,7 @@ class BPETokenizer:
         
         for word in words:
             # 각 글자를 byte ID로 변환
-            word_tokens = list(word.encode('utf-8'))
+            word_tokens = [self.bytes_to_id[bytes([b])] for b in word.encode('utf-8')]
             
             # merge 적용
             while len(word_tokens) >= 2: # 토큰이 두개 이상일때만
@@ -238,3 +238,4 @@ class BPETokenizer:
 
 def get_tokenizer(vocab, merges, special_tokens=None):
     return BPETokenizer(vocab, merges, special_tokens)
+
