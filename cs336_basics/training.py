@@ -83,8 +83,8 @@ def run_get_batch(
     device: str
 ):
     # 1. 랜덤 시작 위치 batch_size개 샘플링
-    # context_length+1 만큼 읽어야 하니까 max_start를 제한
-    max_start = len(dataset) - context_length - 1
+    # context_length 만큼 읽어야 하니까 max_start를 제한
+    max_start = len(dataset) - context_length
     start_indices = torch.randint(0, max_start, (batch_size,))
     # 이렇게 하면, batch_size 만큼 숫자를 고르고 이거를 batch_size length의 1D tensor로.
 
