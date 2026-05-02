@@ -1,3 +1,4 @@
+
 import torch
 from torch import Tensor
 import torch.nn as nn
@@ -173,7 +174,7 @@ def run_multihead_self_attention_with_rope(
     positions = token_positions.unsqueeze(1)
 
     # 4.2 Q와 K만 RoPE
-    rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len)
+    rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len, device=in_features.device)
     Q = rope(Q, positions)
     K = rope(K, positions)
 
