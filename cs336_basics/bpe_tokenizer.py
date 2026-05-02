@@ -102,7 +102,10 @@ def run_train_bpe(input_path, vocab_size, special_tokens, **kwargs):
         # 극단적으로, 모든 단어들이 단일 글자면, pair가 없을수도
 
         # 3-2. 가장 많은 쌍 찾기. 동점이면 byte값 기준으로 최댓값
-        best_pair = max(pair_counts, key=lambda p: (pair_counts[p], p))
+        best_pair = max(
+            pair_counts,
+            key=lambda p: (pair_counts[p], vocab[p[0]], vocab[p[1]])
+        )
         # lambda p: (pair_counts[p], p)는 p를 받아서 pair_counts[p]를 반환하는 함수
         # max(pair_counts, key=lambda p: pair_counts[p]) 그냥 이렇게만 써도 됨
         # 근데 동점일때 대비, 2차원 튜플로, p 값 비교해서 숫자쌍 자체가 큰걸로.
