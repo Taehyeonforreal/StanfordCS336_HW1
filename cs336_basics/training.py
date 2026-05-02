@@ -9,19 +9,22 @@ import math
 def run_cross_entropy(inputs: Tensor, targets: Tensor) -> Tensor:
     # input : run_transformer_lm 출력, target : 실제 다음 단어
 
-    # 1. softmax로 확률 변환
-    probs = run_softmax(inputs, dim=-1)
-    
-    # 2. 각 예시에서 정답 위치의 확률만 꺼내서, -log 취하기
-    batch_size = inputs.size(0)
-    correct_probs = torch.zeros(batch_size)
+    batch_size = inputs.shape[0]
+
+    # log-softmax 직접 계산
+    # 수치 안전성 위해, 각 마지막 dim 마다 x_max로 빼버려. 지수함수 계산 특성
+    x_max = inputs.max(dim=-1, keepdim=True).values
+    log_sum_exp = torch.log(torch.exp(inputs - x_max).sum(dim=-1)) + x_max.squeeze(-1)
+
+
     losses = torch.zeros(batch_size)
     for i in range(batch_size):
         correct_word_id = targets[i]           # i번째 예시의 정답 단어 ID
-        correct_probs[i] = probs[i][correct_word_id]  # 그 단어의 확률
-        losses[i] = -torch.log(correct_probs[i])
+        # 그 단어의 확률인데, log 취하고 - 붙이기.
+        log_prob = inputs[i][correct_word_id] - log_sum_exp[i]  
+        losses[i] = -log_prob
     
-    # 3. -log 취하고 평균
+    # 평균
     return losses.mean()
 
 
@@ -127,3 +130,4 @@ def run_load_checkpoint(
     model.load_state_dict(checkpoint['model'])
     optimizer.load_state_dict(checkpoint['optimizer'])
     return checkpoint['iteration']
+
