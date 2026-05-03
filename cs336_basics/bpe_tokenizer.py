@@ -2,11 +2,10 @@ import os
 import regex as re
 from collections import defaultdict
 
-# GPT-2 pre-tokenization 패턴
+# GPT-2 pre-tokenization Pattern
 GPT2_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-# 이걸 쓰는 이유?
-# 합치기 전에, 선 넘기 전에 경계선 긋기. Letter, Number, Punctuation, Space 단위로.
-# Instruction에서 제시한 대로, 이걸 그대로 사용
+# Before merging, draw boundary. Letter, Number, Punctuation, Space Units.
+# Given by Assignment 1 Instruction
 
 # pretokenization_example에 있는 코드 복붙
 def find_chunk_boundaries(file, desired_num_chunks, split_special_token):
