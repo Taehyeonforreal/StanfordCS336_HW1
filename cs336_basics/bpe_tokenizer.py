@@ -4,7 +4,7 @@ from collections import defaultdict
 
 # GPT-2 pre-tokenization Pattern
 GPT2_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-# Before merging, draw boundary. Letter, Number, Punctuation, Space Units.
+# Before merging, draw boundary. Contraction, Letter, Number, Punctuation, Space Units.
 # Given by Assignment 1 Instruction
 
 # pretokenization_example에 있는 코드 복붙
